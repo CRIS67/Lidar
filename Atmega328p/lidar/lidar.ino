@@ -54,6 +54,9 @@ RPLidar lidar;
 
 #define SIZE_BUFFER_DETECTION  100
 
+#define SIZE_BUFFER_DETECTION  30   //30 * 8 octets -> 240 (attention à la taille limite d'un message : 255 octets
+#define SIZEOF_STRUCT_FPOINT   8
+
 #define SIZE_DATA_8b        3
 #define SIZE_DATA_16b       4
 
@@ -393,15 +396,33 @@ void sendInt16(int16_t var, uint8_t varCode){
   buf[3] = (unsigned char)(var & 0xff);
   sendSPI(buf,SIZE_DATA_16b);
 }
-void sendDetectedPoints(){  //send 
+void sendDetectedPoints(){  //send
+  uint8_t ind = 1;  //le premier point est stocké à l'indice 1 (0-> type de message)
+  uint8_t b[SIZE_BUFFER_DETECTION * SIZEOF_STRUCT_FPOINT];
+  b[0] = LIDAR_RET_DETECTED_POINTS; //type de message : retour de points mesurés
   while(iDetectIn != iDetectOut){ //tant que le buffer n'est pas vide
     struct fpoint p = DetectedBuf[iDetectOut];
     iDetectOut++;
     if(iDetectOut == SIZE_BUFFER_DETECTION){  //if index > buffer size -> loop back to index 0  (circular buffer)
       iDetectOut = 0;
     }
-    /*A FINIR*/
+    float *fPtr = &p.x;
+    uint8_t *intPtr = (uint8_t*)fPtr;
+    b[ind] = intPtr[0];
+    b[ind + 1] = intPtr[1];
+    b[ind + 2] = intPtr[2];
+    b[ind + 3] = intPtr[3];
+
+    fPtr = &p.y;
+    intPtr = (uint8_t*)fPtr;
+    b[ind + 4] = intPtr[0];
+    b[ind + 5] = intPtr[1];
+    b[ind + 6] = intPtr[2];
+    b[ind + 7] = intPtr[3];
+
+    ind+=8;
   }
+  sendSPI(b, ind);
 }
 void sendRawData(){
   uint8_t buf[9];
