@@ -50,9 +50,9 @@ RPLidar lidar;
 #define LED2  A1
 
 #define SIZE_BUFFER_RX  100
-#define SIZE_BUFFER_TX  100
+#define SIZE_BUFFER_TX  600
 
-#define SIZE_BUFFER_DETECTION  100
+//#define SIZE_BUFFER_DETECTION  100
 
 #define SIZE_BUFFER_DETECTION  30   //30 * 8 octets -> 240 (attention à la taille limite d'un message : 255 octets
 #define SIZEOF_STRUCT_FPOINT   8
@@ -80,12 +80,17 @@ RPLidar lidar;
 #define LIDAR_CMD_GET_DETECTED_POINTS   11
 #define LIDAR_CMD_GET_RAW_POINT         12
 
+#define LIDAR_CMD_SET_SPEED             20
+#define LIDAR_CMD_GET_SPEED             21
+
 #define LIDAR_RET_DEBUG_DEBUG       42 
 #define LIDAR_RET_DEBUG_START       43 
 #define LIDAR_RET_DEBUG_STOP        44
 #define LIDAR_RET_DATA_AVAILABLE    100
 #define LIDAR_RET_DETECTED_POINTS   101
 #define LIDAR_RET_RAW_POINT         102
+
+#define LIDAR_RET_SPEED             121
 
 struct fpoint { //point with x,y float
   float x;
@@ -98,29 +103,31 @@ struct fpoint { //point with x,y float
   uint8_t iOut = 0;
 };*/
 
-unsigned char bufferRx[SIZE_BUFFER_RX];
-unsigned char iRx = 0;
+volatile unsigned char bufferRx[SIZE_BUFFER_RX];
+volatile unsigned char iRx = 0;
 
-unsigned char bufferTx[SIZE_BUFFER_TX];
-unsigned char iTx = 0;  //index octet à envoyer
-unsigned char iTx2 = 0; //index premier octet libre du tableau  (pour ajouter un nouvel octet)
+volatile unsigned char bufferTx[SIZE_BUFFER_TX];
+volatile unsigned char iTx = 0;  //index octet à envoyer
+volatile unsigned char iTx2 = 0; //index premier octet libre du tableau  (pour ajouter un nouvel octet)
 
-unsigned long timeLed;
-int ledState = 0;
+volatile unsigned long timeLed;
+volatile unsigned long timeRotation = 0;
+volatile int ledState = 0;
 
-unsigned char flagErrorCS = 0;
+volatile unsigned char flagErrorCS = 0;
 
 unsigned char flagStart = 0;
 unsigned char flagStop = 0;
+unsigned char flagSendDetectedPoints = 0;
 
 int started = 0;
 int autoStart = 0;
 
 /*Données du dernier point mesuré*/
-float distance = 0;
-float angle = 0;
-bool  startBit = false;
-byte  quality = 0;
+volatile float distance = 0;
+volatile float angle = 0;
+volatile bool  startBit = false;
+volatile byte  quality = 0;
 
 //int xm = 0; //xMesuré
 //int ym = 0; //YMesuré
@@ -128,18 +135,25 @@ byte  quality = 0;
 /*pose du centre du lidar dans le repère absolu de la piste*/
 /*Ces données sont envoyées régulièrement  par la RPi*/
 /*unités :  x et y : [mm] | t : [rad]*/
-int x = 0;
-int y = 0;
-int t = 0;
+volatile int x = 0;
+volatile int y = 0;
+volatile int t = 0;
 
-int xLimInf = 0;
-int xLimSup = 2000;
-int yLimInf = 0;
-int yLimSup = 3000;
+volatile int xLimInf = 0;
+volatile int xLimSup = 2000;
+volatile int yLimInf = 0;
+volatile int yLimSup = 3000;
 
 struct fpoint DetectedBuf[SIZE_BUFFER_DETECTION];
-uint8_t iDetectIn = 0;
-uint8_t iDetectOut = 0;
+volatile uint8_t iDetectIn = 0;
+volatile uint8_t iDetectOut = 0;
+
+volatile uint8_t rotationSpeed = 255;
+volatile float measuredSpeed = 42;
+
+float lastAngle = 0;
+
+uint8_t nbDetectedPoints = 0;
 
 void setup() {
   // bind the RPLIDAR driver to the arduino hardware serial
@@ -183,24 +197,65 @@ void loop() {
   if(started){
     if (IS_OK(lidar.waitPoint())) { //wait for a new measurement or timeOut
       distance = lidar.getCurrentPoint().distance; //distance value in mm unit
-      angle    = lidar.getCurrentPoint().angle; //anglue value in degree
+      angle    = -lidar.getCurrentPoint().angle; //anglue value in degree     dans la datasheet l'angle est mesuré dans le sens horaire -> *(-1) pour le sens trigo
       startBit = lidar.getCurrentPoint().startBit; //whether this point is belong to a new scan
       quality  = lidar.getCurrentPoint().quality; //quality of the current measurement
 
-      float angleRad = angle / 180 * PI;
-      float xm = x +  distance * cos(angleRad + t);
-      float ym = y + distance * sin(angleRad + t);
+      if(distance > 10 && quality >= 5){
 
-      //perform data processing here... 
-      if(xm > xLimInf && x < xLimSup && ym > yLimInf && y < yLimSup){  //Si le point mesuré est dans la piste
-        struct fpoint p;
-        p.x = x +  distance * cos(angleRad + t);
-        p.y = y + distance * sin(angleRad + t);
+        if(angle < lastAngle){  //passage par 0
+          if(ledState){
+            ledState = 0;
+            digitalWrite(LED1,HIGH);
+          }
+          else{
+            ledState = 1;
+            digitalWrite(LED1,LOW);
+          }
+          unsigned long t = millis();
+          if(t - timeRotation != 0){
+            measuredSpeed = 60000/(t - timeRotation);  //conversion tr/min
+          }
+          timeRotation = t;
+        }
+        lastAngle = angle;
   
-        DetectedBuf[iDetectIn] = p;
-        iDetectIn++;
-        if(iDetectIn == SIZE_BUFFER_DETECTION){  //if index > buffer size -> loop back to index 0  (circular buffer)
-          iDetectIn = 0;
+        /*if(startBit){
+          if(ledState){
+            ledState = 0;
+            digitalWrite(LED1,HIGH);
+          }
+          else{
+            ledState = 1;
+            digitalWrite(LED1,LOW);
+          }
+          unsigned long t = millis();
+          if(t - timeRotation != 0){
+            measuredSpeed = 60000/(t - timeRotation);  //conversion tr/min
+          }
+          timeRotation = t;
+        }*/
+  
+        float angleRad = angle / 180 * PI;
+        /*float xm = x +  distance * cos(angleRad + t);
+        float ym = y + distance * sin(angleRad + t);*/
+  
+        //perform data processing here... 
+        //if(xm > xLimInf && x < xLimSup && ym > yLimInf && y < yLimSup){  //Si le point mesuré est dans la piste
+        if(distance < 1000){  //Si le point mesuré est dans la piste
+          struct fpoint p;
+          p.x = x +  distance * cos(angleRad + t);
+          p.y = y + distance * sin(angleRad + t);
+    
+          DetectedBuf[iDetectIn] = p;
+          iDetectIn++;
+          if(iDetectIn == SIZE_BUFFER_DETECTION){  //if index > buffer size -> loop back to index 0  (circular buffer)
+            iDetectIn = 0;
+          }
+          nbDetectedPoints++;
+          if(nbDetectedPoints > SIZE_BUFFER_DETECTION){
+            nbDetectedPoints = SIZE_BUFFER_DETECTION;
+          }
         }
       }
       digitalWrite(LED2,HIGH);
@@ -222,7 +277,7 @@ void loop() {
        lidar.startScan();
        
        // start motor rotating at max allowed speed
-       analogWrite(RPLIDAR_MOTOR, 255);
+       analogWrite(RPLIDAR_MOTOR, rotationSpeed);
        //delay(1000);
     }
   }
@@ -239,7 +294,7 @@ void loop() {
        lidar.startScan();
        
        // start motor rotating at max allowed speed
-       analogWrite(RPLIDAR_MOTOR, 255);
+       analogWrite(RPLIDAR_MOTOR, rotationSpeed);
     }
   }
   /*if LIDAR_CMD_STOP received*/
@@ -249,6 +304,10 @@ void loop() {
     flagStop = 0;
     analogWrite(RPLIDAR_MOTOR, 0);
   }
+  if(flagSendDetectedPoints){
+    flagSendDetectedPoints = 0;
+    sendDetectedPoints();
+  }
 }
 
 ISR (SPI_STC_vect)
@@ -256,14 +315,6 @@ ISR (SPI_STC_vect)
   bufferRx[iRx] = SPDR; //add received char to buffer
   unsigned char r = 0;
   if(iRx == bufferRx[0]){ //Message complet reçu
-    if(ledState){
-      ledState = 0;
-      digitalWrite(LED1,HIGH);
-    }
-    else{
-      ledState = 1;
-      digitalWrite(LED1,LOW);
-    }
     if(bufferRx[0] != 0){ //if size of message > 0
       unsigned char checkSum = 0;
       for(int i = 0; i < iRx;i++){
@@ -327,10 +378,19 @@ ISR (SPI_STC_vect)
             sendSPI(buf,2);
             break;}
           case LIDAR_CMD_GET_DETECTED_POINTS  :
-            /*Send detected points*/
+            flagSendDetectedPoints = 1;
             break;
           case LIDAR_CMD_GET_RAW_POINT:
             sendRawData();
+            break;
+          case LIDAR_CMD_SET_SPEED:
+            rotationSpeed = bufferRx[2];
+            if(started){
+              analogWrite(RPLIDAR_MOTOR, rotationSpeed);
+            }
+            break;
+          case LIDAR_CMD_GET_SPEED:
+            sendSpeed();
             break;
           default:
             /*r = 50;
@@ -398,9 +458,11 @@ void sendInt16(int16_t var, uint8_t varCode){
 }
 void sendDetectedPoints(){  //send
   uint8_t ind = 1;  //le premier point est stocké à l'indice 1 (0-> type de message)
-  uint8_t b[SIZE_BUFFER_DETECTION * SIZEOF_STRUCT_FPOINT];
+  uint8_t b[SIZE_BUFFER_DETECTION * SIZEOF_STRUCT_FPOINT + 1];
   b[0] = LIDAR_RET_DETECTED_POINTS; //type de message : retour de points mesurés
   while(iDetectIn != iDetectOut){ //tant que le buffer n'est pas vide
+  //while(nbDetectedPoints > 0){
+    nbDetectedPoints--;
     struct fpoint p = DetectedBuf[iDetectOut];
     iDetectOut++;
     if(iDetectOut == SIZE_BUFFER_DETECTION){  //if index > buffer size -> loop back to index 0  (circular buffer)
@@ -425,7 +487,7 @@ void sendDetectedPoints(){  //send
   sendSPI(b, ind);
 }
 void sendRawData(){
-  uint8_t buf[9];
+  uint8_t buf[10];
   buf[0] = LIDAR_RET_RAW_POINT;
   float *fPtr = &distance;
   uint8_t *ptr = (uint8_t*)fPtr;
@@ -440,6 +502,19 @@ void sendRawData(){
   buf[6] = ptr[1];
   buf[7] = ptr[2];
   buf[8] = ptr[3];
-  sendSPI(buf,9);
+
+  buf[9] = quality;
+  sendSPI(buf,10);
+}
+void sendSpeed(){
+  uint8_t buf[5];
+  buf[0] = LIDAR_RET_SPEED;
+  float *fPtr = &measuredSpeed;
+  uint8_t *ptr = (uint8_t*)fPtr;
+  buf[1] = ptr[0];
+  buf[2] = ptr[1];
+  buf[3] = ptr[2];
+  buf[4] = ptr[3];
+  sendSPI(buf,5);
 }
 

@@ -26,7 +26,22 @@ void Lidar::getRawPoint(){
 	buffer[0] = LIDAR_CMD_GET_RAW_POINT;
 	sendSPI(buffer,1);
 }
-
+void Lidar::getDetectedPoints(){
+	uint8_t buffer[1];
+	buffer[0] = LIDAR_CMD_GET_DETECTED_POINTS;
+	sendSPI(buffer,1);
+}
+void Lidar::setSpeed(uint8_t speed){	//change rotation speed
+	uint8_t buffer[2];
+	buffer[0] = LIDAR_CMD_SET_SPEED;
+	buffer[1] = speed;
+	sendSPI(buffer,2);
+}
+void Lidar::getSpeed(){	//change rotation speed
+	uint8_t buffer[1];
+	buffer[0] = LIDAR_CMD_GET_SPEED;
+	sendSPI(buffer,1);
+}
 
 void Lidar::sendSPI(uint8_t *buf, uint8_t bufSize){	//add size & checksum
 	uint8_t b[1];
@@ -34,27 +49,28 @@ void Lidar::sendSPI(uint8_t *buf, uint8_t bufSize){	//add size & checksum
 	uint8_t checksum = b[0];
 	//wiringPiSPIDataRW(CHANNEL, b, 1);
 	sendReceiveSPI(b[0]);
-	delay(1);
+	delayMicroseconds(SPI_DELAY);
 	for(int i = 0; i < bufSize; i++){
 		b[0] = buf[i];
 		checksum += buf[i];
 		//wiringPiSPIDataRW(CHANNEL, b, 1);
 		sendReceiveSPI(b[0]);
-	delay(1);
+		delayMicroseconds(SPI_DELAY);
 	}
 	b[0] = checksum;
 	//wiringPiSPIDataRW(CHANNEL, b, 1);
 	sendReceiveSPI(b[0]);
-	delay(1);
+	delayMicroseconds(SPI_DELAY);
 }
 void Lidar::sendReceiveSPI(uint8_t data){	//send & handle response
+	//std::cout << "sent : " << (int)data << std::endl;
 	uint8_t buffer[1];
 	buffer[0] = data;
 	wiringPiSPIDataRW(CHANNEL, buffer, 1);
 	if(receivingMsg){
 		bufferRx[iRxIn] = buffer[0];
 		iRxIn++;
-		if(iRxIn == 100){
+		if(iRxIn == SIZE_BUFFER_RX){
 			iRxIn = 0;
 		}
 		nbBytesReceived++;
@@ -65,7 +81,7 @@ void Lidar::sendReceiveSPI(uint8_t data){	//send & handle response
 			currentMsgSize = buffer[0];
 			bufferRx[iRxIn] = currentMsgSize;
 			iRxIn++;
-			if(iRxIn == 100){
+			if(iRxIn == SIZE_BUFFER_RX){
 				iRxIn = 0;
 			}
 			receivingMsg = true;
@@ -92,7 +108,7 @@ void Lidar::checkMessages(){
 		nbMsgReceived--;
 		uint8_t msgSize = bufferRx[iRxOut];
 		iRxOut++;
-		if(iRxOut == 100){
+		if(iRxOut == SIZE_BUFFER_RX){
 			iRxOut = 0;
 		}
 		uint8_t buf[msgSize];
@@ -100,7 +116,7 @@ void Lidar::checkMessages(){
 		for(int i = 1; i < msgSize; i++){
 			buf[i] = bufferRx[iRxOut];
 			iRxOut++;
-			if(iRxOut == 100){
+			if(iRxOut == SIZE_BUFFER_RX){
 				iRxOut = 0;
 			}
 		}
@@ -110,7 +126,7 @@ void Lidar::checkMessages(){
 		}
 			
 		if(checksum != buf[msgSize-1]){
-			std::cout << "CHECKSUM ERROR !" << std::endl;
+			std::cout << "CHECKSUM ERROR ! (msgSize = " << (int)msgSize << " & iRxOut = " << (int)iRxOut << ")" << std::endl;
 		}
 		else{	//Checksum ok
 			switch(buf[1]){	//type of msg
@@ -141,10 +157,51 @@ void Lidar::checkMessages(){
 					ptr[1] = buf[7];
 					ptr[2] = buf[8];
 					ptr[3] = buf[9];
+					
+					uint8_t quality = buf[10];
 					/*for(int i = 2; i < 10; i++){
 						std::cout << "buf["<<i<<"] : " << (int)buf[i] << " / ";
 					}*/
-					std::cout << "Distance : " << distance << " & angle : " << angle  << std::endl;
+					std::cout << "Distance : " << distance << " & angle : " << angle << "& quality : " << (int)quality << std::endl;
+					break;}
+				case LIDAR_RET_DETECTED_POINTS:{
+					uint8_t s = buf[0];
+					uint8_t nbPoints = s/8;
+					//std::cout << "s : " << (int)s << " & nbPoints : " << (int)nbPoints << std::endl;
+					for(int i =0; i < nbPoints; i++){
+						float x,y;
+						float *dPtr = &x;
+						uint8_t *ptr = (uint8_t*)dPtr;
+						ptr[0] = buf[i*8+2];
+						ptr[1] = buf[i*8+3];
+						ptr[2] = buf[i*8+4];
+						ptr[3] = buf[i*8+5];
+						dPtr = &y;
+						ptr = (uint8_t*)dPtr;
+						ptr[0] = buf[i*8+6];
+						ptr[1] = buf[i*8+7];
+						ptr[2] = buf[i*8+8];
+						ptr[3] = buf[i*8+9];
+						/*for(int i = 2; i < 10; i++){
+							std::cout << "buf["<<i<<"] : " << (int)buf[i] << " / ";
+						}*/
+						//std::cout << "x : " << x << " & y : " << y << std::endl;
+						std::cout << x << "," << y << std::endl;
+					}
+					
+					break;}
+				case LIDAR_RET_SPEED:{
+					float speed;
+					float *dPtr = &speed;
+					uint8_t *ptr = (uint8_t*)dPtr;
+					ptr[0] = buf[2];
+					ptr[1] = buf[3];
+					ptr[2] = buf[4];
+					ptr[3] = buf[5];
+					for(int i = 2; i < 6; i++){
+						std::cout << "buf["<<i<<"] : " << (int)buf[i] << " / ";
+					}
+					std::cout << "speed : " << speed << std::endl;
 					break;}
 			}
 		}

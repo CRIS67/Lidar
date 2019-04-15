@@ -4,6 +4,10 @@
 #define SPI_FREQUENCY	500000
 #define CHANNEL 0
 
+#define SPI_DELAY		100
+
+#define SIZE_BUFFER_RX	1000
+
 #define CODE_VAR_DISTANCE   1
 #define CODE_VAR_ANGLE      2
 
@@ -21,6 +25,9 @@
 #define LIDAR_CMD_GET_DETECTED_POINTS   11
 #define LIDAR_CMD_GET_RAW_POINT         12
 
+#define LIDAR_CMD_SET_SPEED             20
+#define LIDAR_CMD_GET_SPEED             21
+
 
 #define LIDAR_RET_DEBUG_DEBUG       42 
 #define LIDAR_RET_DEBUG_START       43 
@@ -29,6 +36,7 @@
 #define LIDAR_RET_DETECTED_POINTS   101
 #define LIDAR_RET_RAW_POINT         102
 
+#define LIDAR_RET_SPEED             121
 
 #include <wiringPi.h>
 #include <wiringPiSPI.h>
@@ -61,8 +69,11 @@ class Lidar
 		void sendSPI(uint8_t *buf, uint8_t bufSize);
 		void getAvailableData();
 		void getRawPoint();
+		void getDetectedPoints();
+		void setSpeed(uint8_t speed);
+		void getSpeed();
 		int16_t x = 1500,y = 1000, t = 45;
-		uint8_t bufferRx[100];
+		uint8_t bufferRx[SIZE_BUFFER_RX];
 		uint8_t iRxIn = 0;
 		uint8_t iRxOut = 0;
 		bool receivingMsg = false;

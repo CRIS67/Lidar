@@ -20,6 +20,10 @@ int main()
 	std::cout << "-Press 5 to get available data" << std::endl;
 	std::cout << "-Press 6 to get raw data" << std::endl;
 	std::cout << "-Press 7 continuous test" << std::endl;
+	std::cout << "-Press 8 to set speed" << std::endl;
+	std::cout << "-Press 9 to get speed" << std::endl;
+	std::cout << "-Press d to get detected points" << std::endl;
+	std::cout << "-Press c to get detected points continuously" << std::endl;
 	std::cout << "-Press q to quit" << std::endl;
 	while(c != 'q'){
 		c = getchar();
@@ -36,7 +40,7 @@ int main()
 				std::cout << ">Number of received messages : " << (int)lidar.nbMsgReceived << std::endl;
 				std::cout << ">received bytes for last message : " << (int)lidar.nbBytesReceived << " / " << (int)lidar.currentMsgSize << std::endl;
 				std::cout << "bufferRx = ";
-				for(uint8_t i = 0; i < lidar.nbBytesReceivedTotal;i++){
+				for(uint32_t i = 0; i < lidar.nbBytesReceivedTotal;i++){
 					std::cout << (int)lidar.bufferRx[i] << "/";
 				}
 				std::cout << std::endl;
@@ -51,13 +55,58 @@ int main()
 				lidar.getRawPoint();
 				break;
 			case '7':
-				for(int i = 0; i < 10000;i++){
+				for(int i = 0; i < 20000;i++){
 					lidar.getRawPoint();
-					lidar.flush();
+					//lidar.flush();
+					uint8_t buffer[1];
+					for(int i = 0; i < 15; i++){
+						buffer[0] = 0;
+						lidar.sendReceiveSPI(buffer[0]);
+						delayMicroseconds(SPI_DELAY);
+					}
 					lidar.checkMessages();
-					delay(1);
+					delayMicroseconds(SPI_DELAY);
 				}
 				//lidar.getRawPoint();
+				break;
+			case '8':{
+				int speed = -1;
+				std::cin >> speed;
+				if(speed < 0 || speed > 255){
+					std::cout << "speed must be within [0;255] range" << std::endl;
+				}
+				else{
+					lidar.setSpeed(speed);
+					std::cout << "speed set to " << speed << std::endl;
+				}
+				break;}
+			case '9':
+				lidar.getSpeed();
+				break;
+			case 'd':
+				lidar.getDetectedPoints();
+				uint8_t buffer[1];
+				for(int i = 0; i < 255; i++){
+						buffer[0] = 0;
+						lidar.sendReceiveSPI(buffer[0]);
+						delayMicroseconds(SPI_DELAY);
+					}
+				//delay(100);
+				lidar.checkMessages();
+				break;
+			case 'c':
+			for(int i = 0; i < 50; i++){
+				lidar.getDetectedPoints();
+				uint8_t buffer[1];
+				for(int i = 0; i < 255; i++){
+						buffer[0] = 0;
+						lidar.sendReceiveSPI(buffer[0]);
+						delayMicroseconds(SPI_DELAY);
+					}
+				//delay(100);
+				lidar.checkMessages();
+				delay(10);
+			}
 				break;
 			default:
 				break;

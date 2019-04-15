@@ -211,18 +211,18 @@ u_result RPLidar::waitPoint(_u32 timeout)
 
    _u8 recvPos = 0;
 	/*Original version*/
-   while ((remainingtime=millis() - currentTs) <= timeout) {
+  /*while ((remainingtime=millis() - currentTs) <= timeout) {
         int currentbyte = _bined_serialdev->read();
-        if (currentbyte<0) continue;
+        if (currentbyte<0) continue;*/
 	
 	/*avirtuos@ version*/
-	/*int currentbyte = -1;
+	int currentbyte = -1;
     //By allowing the loop to continue as long as there is data read or the timeout has not yet been reached
     //we avoid doing the time check on every byte. For most Arudinos this will increase the max number of samples
     //that can processed per second by as much as 40% (tested on Arduino Leonardo) - avirtuos@
     while (currentbyte != -1 || (remainingtime=millis() - currentTs) <= timeout) {
         currentbyte = _bined_serialdev->read();
-        if (currentbyte<0) continue;*/
+        if (currentbyte<0) continue;
 
         switch (recvPos) {
             case 0: // expect the sync bit and its reverse in this byte          {
